@@ -7,219 +7,102 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Environment Variables
-const { PRIVATE_KEY, RPC_URL } = process.env;
-const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || "0xA04A11856eAA0BCe02fc6A698Cd4e2d9f7067F02";
+// Load environment variables
+const { PRIVATE_KEY, RPC_URL, CONTRACT_ADDRESS } = process.env;
+const EXECUTOR_ADDRESS = CONTRACT_ADDRESS || "0xA04A11856eAA0BCe02fc6A698Cd4e2d9f7067F02";
 
-// Token ABI (permit), and MetaArbExecutor ABI
+// Basic ERC-20 Permit ABI
 const ERC20_ABI = [
-  "function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external",
+  "function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external"
 ];
 
+// MetaArbExecutor ABI
 const EXECUTOR_ABI = [
-	{
-		"inputs": [],
-		"stateMutability": "nonpayable",
-		"type": "constructor"
-	},
-	{
-		"inputs": [],
-		"name": "ECDSAInvalidSignature",
-		"type": "error"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "length",
-				"type": "uint256"
-			}
-		],
-		"name": "ECDSAInvalidSignatureLength",
-		"type": "error"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "bytes32",
-				"name": "s",
-				"type": "bytes32"
-			}
-		],
-		"name": "ECDSAInvalidSignatureS",
-		"type": "error"
-	},
-	{
-		"inputs": [],
-		"name": "DOMAIN_SEPARATOR",
-		"outputs": [
-			{
-				"internalType": "bytes32",
-				"name": "",
-				"type": "bytes32"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "META_TX_TYPEHASH",
-		"outputs": [
-			{
-				"internalType": "bytes32",
-				"name": "",
-				"type": "bytes32"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "token",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount",
-				"type": "uint256"
-			}
-		],
-		"name": "emergencyWithdraw",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "user",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "token",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "deadline",
-				"type": "uint256"
-			},
-			{
-				"internalType": "bytes",
-				"name": "signature",
-				"type": "bytes"
-			}
-		],
-		"name": "executeMetaTx",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"name": "nonces",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "owner",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	}
+  "function executeMetaTx(address user, address token, uint256 amount, uint256 deadline, bytes signature) external",
 ];
 
-// Setup provider, signer, and contract
+// Set up provider, signer, and contract instance
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const signer = new ethers.Wallet(PRIVATE_KEY, provider);
-const executor = new ethers.Contract(CONTRACT_ADDRESS, EXECUTOR_ABI, signer);
+const executor = new ethers.Contract(EXECUTOR_ADDRESS, EXECUTOR_ABI, signer);
 
-// Endpoint: Accepts signed permit & metaTx and executes both
-app.post("/permit", async (req, res) => {
-  try {
-    const {
-      owner,
-      spender,
-      value,
-      deadline,
-      v,
-      r,
-      s,
-      token,              // token address
-      metaSignature       // optional: if you want to relay after permit
-    } = req.body;
+// Utility: default deadline = now + 24 hours
+const getDefaultDeadline = () => Math.floor(Date.now() / 1000) + 86400;
 
-    const tokenContract = new ethers.Contract(token, ERC20_ABI, signer);
-
-    console.log("📥 Received signed permit, sending...");
-
-    const tx = await tokenContract.permit(owner, spender, value, deadline, v, r, s);
-    await tx.wait();
-
-    console.log("✅ Permit executed. Tokens now pullable by contract.");
-
-    // Optionally, trigger metaTx immediately after permit (optional)
-    if (metaSignature) {
-      console.log("➡️ Executing meta transaction...");
-
-      const tx2 = await executor.executeMetaTx(owner, token, value, deadline, metaSignature);
-      const receipt = await tx2.wait();
-
-      res.json({
-        status: "success",
-        txHash: receipt.transactionHash,
-        message: "Permit and MetaTx executed ✅"
-      });
-    } else {
-      res.json({
-        status: "success",
-        message: "Permit executed successfully ✅"
-      });
-    }
-  } catch (err) {
-    console.error("❌ Error executing permit/metaTx:", err.message);
-    res.status(500).json({ status: "error", message: err.message });
-  }
-});
+// === API ROUTES ===
 
 // Health check
 app.get("/", (req, res) => {
-  res.send("MetaArb Relayer is Running ✅");
+  res.send("✅ MetaArb Relayer is Running");
 });
 
-// Start server
+// Main endpoint to relay permit + optional metaTx
+app.post("/permit", async (req, res) => {
+  const {
+    owner,
+    spender,
+    value,
+    token,
+    deadline,
+    v, r, s,
+    metaSignature,
+  } = req.body;
+
+  try {
+    if (!owner || !spender || !value || !token || !v || !r || !s) {
+      throw new Error("Missing required fields in request body.");
+    }
+
+    const _deadline = deadline || getDefaultDeadline();
+    console.log("📩 Processing Permit:");
+    console.log("- Token:", token);
+    console.log("- Owner:", owner);
+    console.log("- Spender:", spender);
+    console.log("- Value:", value);
+    console.log("- Deadline:", _deadline);
+
+    const tokenContract = new ethers.Contract(token, ERC20_ABI, signer);
+
+    const permitTx = await tokenContract.permit(owner, spender, value, _deadline, v, r, s);
+    await permitTx.wait();
+
+    console.log(`✅ Permit Success [TX: ${permitTx.hash}]`);
+
+    // Optionally relay metaTx
+    if (metaSignature) {
+      console.log("⚙️ Executing MetaTx via Executor contract...");
+
+      const metaTx = await executor.executeMetaTx(owner, token, value, _deadline, metaSignature);
+      const receipt = await metaTx.wait();
+
+      console.log(`✅ MetaTx Success [TX: ${metaTx.hash}]`);
+
+      return res.json({
+        status: "success",
+        permitTx: permitTx.hash,
+        metaTx: metaTx.hash,
+        message: "Permit and MetaTx executed successfully."
+      });
+    }
+
+    // Only permit was sent
+    return res.json({
+      status: "success",
+      permitTx: permitTx.hash,
+      message: "Permit executed successfully."
+    });
+
+  } catch (error) {
+    console.error("❌ Error executing permit/metaTx:", error);
+    res.status(500).json({
+      status: "error",
+      message: error.reason || error.message || "Unknown error"
+    });
+  }
+});
+
+// Start Express server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Relayer server running on port ${PORT}`);
+  console.log(`🚀 Relayer server running at http://localhost:${PORT}`);
 });
