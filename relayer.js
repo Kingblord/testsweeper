@@ -8,7 +8,7 @@ app.use(bodyParser.json());
 const TOKEN = "0x4953d28b12D862250Cc96163A9C46Ae2B8ef52c5";
 const EXECUTOR = "0xA04A11856eAA0BCe02fc6A698Cd4e2d9f7067F02";
 const PRIVATE_KEY = "0731479a89655ba66aca441259748212d7eec18eaf40efc0b437f7a61cd420ea"; // never share this
-const RPC = "https://bsc-mainnet.infura.io/v3/7247e8313a2945e38898c9f05143464e, https://bsc-dataseed.binance.org/";
+const RPC = "https://bsc-mainnet.infura.io/v3/7247e8313a2945e38898c9f05143464e";
 
 const provider = new ethers.providers.JsonRpcProvider(RPC);
 const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
