@@ -1,41 +1,40 @@
 const express = require("express");
-const { ethers } = require("ethers");
 const bodyParser = require("body-parser");
+const { ethers } = require("ethers");
+require("dotenv").config();
 
 const app = express();
 app.use(bodyParser.json());
 
-const TOKEN = "0x4953d28b12D862250Cc96163A9C46Ae2B8ef52c5";
-const EXECUTOR = "0xA04A11856eAA0BCe02fc6A698Cd4e2d9f7067F02";
-const PRIVATE_KEY = "0731479a89655ba66aca441259748212d7eec18eaf40efc0b437f7a61cd420ea"; // never share this
-const RPC = "https://bsc-mainnet.infura.io/v3/7247e8313a2945e38898c9f05143464e";
-
-const provider = new ethers.providers.JsonRpcProvider(RPC);
-const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
-
-const executorAbi = [
-  "function executeMetaTx(address token, address from, uint256 amount, uint256 nonce, uint256 deadline, bytes calldata signature) external"
+const EXECUTOR_ABI = [
+  "function executeMetaTx(address token,address from,uint256 amount,uint256 nonce,uint256 deadline,bytes signature) external"
 ];
 
-const executor = new ethers.Contract(EXECUTOR, executorAbi, wallet);
+const TOKEN_EXECUTOR = "0xA04A11856eAA0BCe02fc6A698Cd4e2d9f7067F02";
+const provider = new ethers.JsonRpcProvider("https://bsc-dataseed.binance.org/");
+const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+const executor = new ethers.Contract(TOKEN_EXECUTOR, EXECUTOR_ABI, wallet);
 
 app.post("/execute", async (req, res) => {
   try {
     const { token, from, amount, nonce, deadline, signature } = req.body;
 
-    console.log("🛰️ Executing metaTx...");
-    const tx = await executor.executeMetaTx(token, from, amount, nonce, deadline, signature);
-    await tx.wait();
-    console.log("✅ MetaTx executed:", tx.hash);
+    const tx = await executor.executeMetaTx(
+      token,
+      from,
+      amount,
+      nonce,
+      deadline,
+      signature
+    );
 
-    res.json({ status: "success", txHash: tx.hash });
-  } catch (e) {
-    console.error("❌ Error:", e.message);
-    res.status(500).json({ status: "error", error: e.message });
+    await tx.wait();
+    res.json({ success: true, hash: tx.hash });
+  } catch (err) {
+    console.error("❌ Relayer error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Relayer listening on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Relayer running on port ${PORT}`));
